@@ -1,0 +1,79 @@
+--TEST--
+Test install command adds new autoloader entries
+--COMPOSER--
+{
+    "repositories": [
+        {
+            "type": "package",
+            "package": [
+                {
+                    "name": "a/a", "version": "dev-master",
+                    "autoload": { "psr-0": { "Wibble": "" } },
+                    "source": { "reference": "master", "url": "", "type": "git" }
+                }
+            ]
+        }
+    ],
+    "require": {
+        "a/a": "*"
+    }
+}
+--LOCK--
+{
+    "hash": "a559681cbf2b0968a3e4c351f19ae765",
+    "packages": [
+        {
+            "package": "a/a",
+            "version": "dev-master",
+            "source-reference": "c39d64e1fa9e80ea9011124e33dcdc49af29ed79"
+        }
+    ],
+    "packages-dev": null,
+    "aliases": [
+    ],
+    "minimum-stability": "stable",
+    "stability-flags": [
+    ]
+}
+--INSTALLED--
+[
+    {
+        "name": "a/a",
+        "version": "dev-master",
+        "version_normalized": "9999999-dev",
+        "source": {
+            "type": "git",
+            "url": "",
+            "reference": "087fa49671fe3d949a6651493ff569d9e5198e5e"
+        },
+        "type": "library",
+        "autoload": {
+            "psr-0": {
+                "Foo": "src"
+            }
+        }
+    }
+]
+--RUN--
+install
+--EXPECT-INSTALLED--
+[
+    {
+        "name": "a/a",
+        "version": "dev-master",
+        "version_normalized": "9999999-dev",
+        "source": {
+            "type": "git",
+            "url": "",
+            "reference": "c39d64e1fa9e80ea9011124e33dcdc49af29ed79"
+        },
+        "type": "library",
+        "autoload": {
+            "psr-0": {
+                "Wibble": "src"
+            }
+        }
+    }
+]
+--EXPECT--
+Updating a/a (dev-master 087fa4) to a/a (dev-master c39d64)
