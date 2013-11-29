@@ -1,0 +1,41 @@
+--TEST--
+Test case for running update with stale installed information (#2416)
+--COMPOSER--
+{
+    "repositories": [
+        {
+            "type": "package",
+            "package": [
+                { "name": "a/a", "version": "1.0.0", "homepage": "http://example.com/a/a" }
+            ]
+        }
+    ],
+    "require": {
+        "a/a": "1.0.0"
+    }
+}
+--LOCK--
+{
+    "packages": [
+        { "name": "a/a", "version": "1.0.0", "homepage": "http://example.com/a/a" }
+    ]
+}
+--INSTALLED--
+[
+    { "name": "a/a", "version": "1.0.0", "homepage": "http://bad.example.com/a/a" }
+]
+--RUN--
+update
+--EXPECT-LOCK--
+{
+    "packages": [
+        { "name": "a/a", "version": "1.0.0", "homepage": "http://example.com/a/a", "type": "library" }
+    ],
+    "packages-dev": [],
+    "platform": [],
+    "platform-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": []
+}
+--EXPECT--
