@@ -206,33 +206,33 @@ class GitDownloader extends VcsDownloader
     {
         $template = 'git checkout %s && git reset --hard %1$s';
         $branch = preg_replace('{(?:^dev-|(?:\.x)?-dev$)}i', '', $branch);
+        $remotePrefix = 'refs/remotes/composer';
+        $isSymRef = !preg_match('{^[a-f0-9]{40}$}', $reference);
 
-        $branches = null;
-        if (0 === $this->process->execute('git branch -r', $output, $path)) {
-            $branches = $output;
+        $branches = array();
+        if (0 === $this->process->execute(sprintf('git for-each-ref --format="%%(refname)" %s', $remotePrefix), $output, $path)) {
+            $branches = $this->process->splitLines($output);
         }
 
         // check whether non-commitish are branches or tags, and fetch branches with the remote name
         $gitRef = $reference;
-        if (!preg_match('{^[a-f0-9]{40}$}', $reference)
-            && $branches
-            && preg_match('{^\s+composer/'.preg_quote($reference).'$}m', $output)
-        ) {
-            $command = sprintf('git checkout -B %s %s && git reset --hard %2$s', escapeshellarg($branch), escapeshellarg('composer/'.$reference));
+        if ($isSymRef && in_array($remotePrefix.'/'.$reference, $branches))
+        {
+            $command = sprintf('git checkout -B %s %s && git reset --hard %2$s', escapeshellarg($branch), escapeshellarg($remotePrefix.'/'.$reference));
             if (0 === $this->process->execute($command, $output, $path)) {
                 return;
             }
         }
 
         // try to checkout branch by name and then reset it so it's on the proper branch name
-        if (preg_match('{^[a-f0-9]{40}$}', $reference)) {
+        if (!$isSymRef) {
             // add 'v' in front of the branch if it was stripped when generating the pretty name
-            if (!preg_match('{^\s+composer/'.preg_quote($branch).'$}m', $branches) && preg_match('{^\s+composer/v'.preg_quote($branch).'$}m', $branches)) {
+            if (!in_array($remotePrefix.'/'.$branch, $branches) && in_array($remotePrefix.'/v'.$branch, $branches)) {
                 $branch = 'v' . $branch;
             }
 
             $command = sprintf('git checkout %s', escapeshellarg($branch));
-            $fallbackCommand = sprintf('git checkout -B %s %s', escapeshellarg($branch), escapeshellarg('composer/'.$branch));
+            $fallbackCommand = sprintf('git checkout -B %s %s', escapeshellarg($branch), escapeshellarg($remotePrefix.'/'.$branch));
             if (0 === $this->process->execute($command, $output, $path)
                 || 0 === $this->process->execute($fallbackCommand, $output, $path)
             ) {
@@ -253,14 +253,14 @@ class GitDownloader extends VcsDownloader
             $date = $date->format('U');
 
             // guess which remote branch to look at first
-            $command = 'git branch -r';
+            $command = sprintf('git for-each-ref --format="%%(refname)" %s', $remotePrefix);
             if (0 !== $this->process->execute($command, $output, $path)) {
                 throw new \RuntimeException('Failed to execute ' . $command . "\n\n" . $this->process->getErrorOutput());
             }
 
             $guessTemplate = 'git log --until=%s --date=raw -n1 --pretty=%%H %s';
             foreach ($this->process->splitLines($output) as $line) {
-                if (preg_match('{^composer/'.preg_quote($branch).'(?:\.x)?$}i', trim($line))) {
+                if (preg_match('{^'.preg_quote($remotePrefix.'/'.$branch).'(?:\.x)?$}i', trim($line))) {
                     // find the previous commit by date in the given branch
                     if (0 === $this->process->execute(sprintf($guessTemplate, $date, escapeshellarg(trim($line))), $output, $path)) {
                         $newReference = trim($output);
