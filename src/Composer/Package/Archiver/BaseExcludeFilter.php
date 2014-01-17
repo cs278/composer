@@ -82,7 +82,14 @@ abstract class BaseExcludeFilter
                 function ($line) use ($lineParser) {
                     $line = trim($line);
 
-                    $commentHash = strpos($line, '#');
+                    if ('\#' === substr($line, 0, 2)) {
+                        // Matching files beginning with '#'.
+                        $line = substr($line, 1);
+                        $commentHash = strpos($line, '#', 1);
+                    } else {
+                        $commentHash = strpos($line, '#');
+                    }
+
                     if ($commentHash !== false) {
                         $line = substr($line, 0, $commentHash);
                     }
