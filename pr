@@ -1,0 +1,4 @@
+Fixes #2607
+
+This allows for patterns that attempt to match paths beginning with hash signs. The repo referenced in the issue has an ignore line of `\#*` which was being interpreted as ignore everything.
+
