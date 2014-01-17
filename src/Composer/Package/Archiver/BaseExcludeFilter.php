@@ -133,7 +133,7 @@ abstract class BaseExcludeFilter
     protected function generatePattern($rule)
     {
         $negate = false;
-        $pattern = '#';
+        $pattern = '{';
 
         if (strlen($rule) && $rule[0] === '!') {
             $negate = true;
@@ -149,6 +149,6 @@ abstract class BaseExcludeFilter
 
         $pattern .= substr(Finder\Glob::toRegex($rule), 2, -2);
 
-        return array($pattern . '#', $negate, false);
+        return array($pattern . '}', $negate, false);
     }
 }
