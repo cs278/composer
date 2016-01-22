@@ -1,0 +1,3 @@
+/ca/*
+!/ca/openssl.cnf
+/*.pem

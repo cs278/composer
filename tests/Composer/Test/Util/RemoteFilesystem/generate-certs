@@ -1,0 +1,118 @@
+#!/bin/sh -eu
+
+# Garbage self signed
+openssl req -x509 -batch -newkey rsa:2048 -keyout self-signed-garbage-key.pem -out self-signed-garbage-cert.pem -days 3650 -nodes -subj "/CN=garbage"
+
+# Localhost self-signed
+openssl req -x509 -batch -newkey rsa:2048 -keyout self-signed-localhost-key.pem -out self-signed-localhost-cert.pem -days 3650 -nodes -subj "/CN=localhost"
+
+# CA
+cd ca
+find -type f ! -name "openssl.cnf" -delete
+mkdir -p certs crl newcerts private csr
+> index.txt
+echo 1000 > serial
+
+# Root certificate
+openssl req -x509 -batch -newkey rsa:2048 -keyout private/ca.key.pem -out certs/ca.cert.pem -days 3650 -nodes -subj "/CN=Root CA"
+
+asn1date() {
+    date --date="$1" +%Y%m%d%H%M%S%z
+}
+
+ca_create_intermediate() {
+    intermediate=$1
+    cn=$2
+
+    mkdir -p "$intermediate"
+    cd "$intermediate"
+    mkdir -p certs crl newcerts private csr
+    > index.txt
+    echo 1000 > serial
+
+    cat ../openssl.cnf \
+        | sed 's/ca\(\.[a-z]*\.pem\)/intermediate\1/;s/\(=\s*\)policy_strict/\1policy_loose/' \
+        > openssl.cnf
+
+    echo "[ san_ext ]" >> openssl.cnf
+    echo "subjectAltName=\${ENV::SAN}" >> openssl.cnf
+
+    openssl genrsa -out private/intermediate.key.pem 2048
+    SAN= openssl req -batch -config openssl.cnf -new -sha256 \
+        -key private/intermediate.key.pem \
+        -out csr/intermediate.csr.pem \
+        -subj "/CN=$cn"
+
+    cd ..
+
+    openssl ca -batch -config openssl.cnf -extensions v3_intermediate_ca \
+        -days 3650 -notext -md sha256 \
+        -in "$intermediate/csr/intermediate.csr.pem" \
+        -out "$intermediate/certs/intermediate.cert.pem"
+}
+
+ca_issue_server() {
+    intermediate=$1; shift
+    cn=$1; shift
+    san=
+    args=
+
+    if [ -n "${1:-}" ]; then
+        case "$1" in
+            -*)
+                # Arguments for sign CA, skip
+                :
+            ;;
+            *)
+                :
+                san="$1"; shift
+                args="$args -extensions san_ext"
+            ;;
+        esac
+    fi
+
+    cd "$intermediate"
+
+    # PK
+    openssl genrsa -out "private/$cn.key.pem" 2048
+
+    # CSR
+    SAN="$san" openssl req -batch -config openssl.cnf -new -sha256 $args \
+        -key "private/$cn.key.pem" \
+        -out "csr/$cn.csr.pem" \
+        -subj "/CN=$cn"
+
+    # Public
+    SAN="$san" openssl ca -batch -config openssl.cnf -extensions server_cert $args \
+        "$@" -notext -md sha256 \
+        -in "csr/$cn.csr.pem" \
+        -out "certs/$cn.cert.pem"
+
+    cd ..
+}
+
+# Intermediate CAs
+ca_create_intermediate "i1-trusted" "Composer Test I1 CA - Trusted"
+ca_create_intermediate "i2-untrusted" "Composer Test I2 CA - Untrusted"
+ca_create_intermediate "i3-trusted-expired" "Composer Test I3 CA - Trusted|Expired"
+
+# Server certificates
+ca_issue_server i1-trusted localhost
+ca_issue_server i1-trusted garbage
+ca_issue_server i1-trusted 127.0.0.1.nip.io "DNS:www.127.0.0.1.nip.io"
+ca_issue_server i2-untrusted localhost
+ca_issue_server i2-untrusted garbage
+ca_issue_server i3-trusted-expired localhost -startdate $(asn1date "7 days ago") -enddate $(asn1date yesterday)
+ca_issue_server i3-trusted-expired garbage -startdate $(asn1date "7 days ago") -enddate $(asn1date yesterday)
+
+# Generate trusted client trust stores (cafile/cadir)
+mkdir -p cadir
+cp certs/ca.cert.pem cadir/root.pem
+cp i1-trusted/certs/intermediate.cert.pem cadir/i1-trusted.pem
+cp i3-trusted-expired/certs/intermediate.cert.pem cadir/i3-trusted-expired.pem
+
+cat cadir/*.pem > cafile.pem
+
+c_rehash cadir
+
+echo "Done"
