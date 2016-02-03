@@ -19,14 +19,19 @@ use Symfony\Component\Process\PhpProcess;
  */
 final class TlsHelper
 {
+    const CIPHER_TLSV1_2 = 1;
+    const CIPHER_FS = 2;
+
     private static $useOpensslParse;
+
+    private static $cipherSuites = array();
 
     /**
      * Match hostname against a certificate.
      *
-     * @param mixed  $certificate X.509 certificate
-     * @param string $hostname    Hostname in the URL
-     * @param string $cn          Set to the common name of the certificate iff match found
+     * @param mixed $certificate X.509 certificate
+     * @param string $hostname Hostname in the URL
+     * @param string $cn Set to the common name of the certificate iff match found
      *
      * @return bool
      */
@@ -46,13 +51,13 @@ final class TlsHelper
 
             if ($matcher && $matcher($hostname)) {
                 $cn = $names['cn'];
-
                 return true;
             }
         }
 
         return false;
     }
+
 
     /**
      * Extract DNS names out of an X.509 certificate.
@@ -142,6 +147,38 @@ final class TlsHelper
         $der           = base64_decode($pemtrim);
 
         return sha1($der);
+    }
+
+    /**
+     * Get default ciphersuite preferences.
+     *
+     * This is based upon Chromium's preferences.
+     *
+     * @return string[]
+     */
+    public static function getCipherSuites()
+    {
+        self::initCipherSuites();
+
+        return implode(':', array_merge(array_keys(self::$cipherSuites), array(
+            // Mandatory discards.
+            '!aNULL',
+            '!eNULL',
+            '!EXPORT',
+            '!DES',
+            '!MD5',
+            '!PSK',
+            '!DSS',
+        )));
+    }
+
+    public static function isCipherSuiteFs($cipherSuite)
+    {
+        self::initCipherSuites();
+
+        return isset(self::$cipherSuites[$cipherSuite])
+            ? (bool) (self::$cipherSuites[$cipherSuite] & self::CIPHER_FS)
+            : false;
     }
 
     /**
@@ -285,5 +322,32 @@ EOT;
                 return 1 === preg_match($wildcardRegex, $hostname);
             };
         }
+    }
+
+    private static function initCipherSuites()
+    {
+        if (!empty(self::$cipherSuites)) {
+            return;
+        }
+
+        self::$cipherSuites = array(
+            // FS
+            'ECDHE-ECDSA-CHACHA20-POLY1305' => self::CIPHER_TLSV1_2 | self::CIPHER_FS,
+            'ECDHE-RSA-CHACHA20-POLY1305'   => self::CIPHER_TLSV1_2 | self::CIPHER_FS,
+            'ECDHE-ECDSA-AES128-GCM-SHA256' => self::CIPHER_TLSV1_2 | self::CIPHER_FS,
+            'ECDHE-RSA-AES128-GCM-SHA256'   => self::CIPHER_TLSV1_2 | self::CIPHER_FS,
+            'DHE-RSA-AES128-GCM-SHA256'     => self::CIPHER_TLSV1_2 | self::CIPHER_FS,
+            'ECDHE-ECDSA-AES256-SHA'        => self::CIPHER_TLSV1_2 | self::CIPHER_FS,
+            'ECDHE-RSA-AES256-SHA'          => self::CIPHER_FS,
+            'DHE-RSA-AES256-SHA'            => self::CIPHER_FS,
+            'ECDHE-ECDSA-AES128-SHA'        => self::CIPHER_TLSV1_2 | self::CIPHER_FS,
+            'ECDHE-RSA-AES128-SHA'          => self::CIPHER_FS,
+            'DHE-RSA-AES128-SHA'            => self::CIPHER_FS,
+            // No FS
+            'AES128-GCM-SHA256'             => self::CIPHER_TLSV1_2,
+            'AES256-SHA'                    => 0,
+            'AES128-SHA'                    => 0,
+            'DES-CBC3-SHA'                  => 0,
+        );
     }
 }

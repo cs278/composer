@@ -73,4 +73,9 @@ class TlsHelperTest extends \PHPUnit_Framework_TestCase
             'composer.example.org',
         ), $names['san']);
     }
+
+    public function testCiphers()
+    {
+        var_dump(TlsHelper::getCipherSuites());
+    }
 }

@@ -266,7 +266,18 @@ class RemoteFilesystem
             $errorMessage .= preg_replace('{^file_get_contents\(.*?\): }', '', $msg);
         });
         try {
+            // $handle = stream_socket_client('tls://packagist.org:443', $e1, $e2, 1, STREAM_CLIENT_CONNECT, $ctx);
+            //
+            // var_dump($handle);
+            // var_dump(stream_get_meta_data($handle));
+            // fclose($handle); die;
+
+
+
+            // $handle = fopen(str_replace('https://', 'ssl://', $fileUrl), 'r', false, $ctx);
+            // $result = stream_get_contents($handle);
             $result = file_get_contents($fileUrl, false, $ctx);
+            //
 
             if (PHP_VERSION_ID < 50600 && !empty($options['ssl']['peer_fingerprint'])) {
                 // Emulate fingerprint validation on PHP < 5.6
@@ -305,6 +316,41 @@ class RemoteFilesystem
             }
 
             throw $e;
+        }
+
+        $contextParams = stream_context_get_params($ctx);
+
+        if ($this->io->isVerbose() && !empty($contextParams['options']['ssl']['peer_certificate']) && TlsHelper::isOpensslParseSafe()) {
+            $certInfo = openssl_x509_parse(
+                $contextParams['options']['ssl']['peer_certificate'],
+                false
+            );
+
+            $this->io->writeError(sprintf(
+                'Certificate: <info>%s</info>, issued by: <info>%s</info>',
+                implode(', ', array_reverse($certInfo['subject'])),
+                implode(', ', array_reverse($certInfo['issuer']))
+            ));
+        }
+
+        if (!empty($contextParams['options']['ssl']['session_meta'])) {
+            $tlsMeta = $contextParams['options']['ssl']['session_meta'];
+            $tlsMeta['old_protocol'] = in_array($tlsMeta['protocol'], array('SSLv3'));
+            $tlsMeta['cipher_warn'] = in_array($tlsMeta['cipher_name'], array('DES-CBC3-SHA'));
+
+            $tagOutput = function ($output, $tag = '') {
+                return $tag ? sprintf('<%1$s>%2$s</%1$s>', $tag, $output) : $output;
+            };
+
+            if ($this->io->isVeryVerbose() || $tlsMeta['old_protocol'] || $tlsMeta['cipher_warn']) {
+                $this->io->writeError(sprintf(
+                    'Connected to %s using %s - %s%s',
+                    $this->getUrlAuthority($this->fileUrl),
+                    $tagOutput($tlsMeta['protocol'], $tlsMeta['old_protocol'] ? 'error' : ''),
+                    $tagOutput($tlsMeta['cipher_name'], $tlsMeta['cipher_warn'] ? 'error' : ''),
+                    TlsHelper::isCipherSuiteFs($tlsMeta['cipher_name']) ? ' [FS]' : ''
+                ));
+            }
         }
 
         $statusCode = null;
@@ -716,44 +762,7 @@ class RemoteFilesystem
      */
     private function getTlsDefaults(array $options)
     {
-        $ciphers = implode(':', array(
-            'ECDHE-RSA-AES128-GCM-SHA256',
-            'ECDHE-ECDSA-AES128-GCM-SHA256',
-            'ECDHE-RSA-AES256-GCM-SHA384',
-            'ECDHE-ECDSA-AES256-GCM-SHA384',
-            'DHE-RSA-AES128-GCM-SHA256',
-            'DHE-DSS-AES128-GCM-SHA256',
-            'kEDH+AESGCM',
-            'ECDHE-RSA-AES128-SHA256',
-            'ECDHE-ECDSA-AES128-SHA256',
-            'ECDHE-RSA-AES128-SHA',
-            'ECDHE-ECDSA-AES128-SHA',
-            'ECDHE-RSA-AES256-SHA384',
-            'ECDHE-ECDSA-AES256-SHA384',
-            'ECDHE-RSA-AES256-SHA',
-            'ECDHE-ECDSA-AES256-SHA',
-            'DHE-RSA-AES128-SHA256',
-            'DHE-RSA-AES128-SHA',
-            'DHE-DSS-AES128-SHA256',
-            'DHE-RSA-AES256-SHA256',
-            'DHE-DSS-AES256-SHA',
-            'DHE-RSA-AES256-SHA',
-            'AES128-GCM-SHA256',
-            'AES256-GCM-SHA384',
-            'ECDHE-RSA-RC4-SHA',
-            'ECDHE-ECDSA-RC4-SHA',
-            'AES128',
-            'AES256',
-            'RC4-SHA',
-            'HIGH',
-            '!aNULL',
-            '!eNULL',
-            '!EXPORT',
-            '!DES',
-            '!3DES',
-            '!MD5',
-            '!PSK',
-        ));
+        $ciphers = TlsHelper::getCipherSuites();
 
         /**
          * CN_match and SNI_server_name are only known once a URL is passed.
@@ -768,8 +777,13 @@ class RemoteFilesystem
                 'verify_depth' => 7,
                 'SNI_enabled' => true,
                 'capture_peer_cert' => true,
+                'capture_session_meta' => true, // Good luck finding this in the docs
             ),
         );
+
+        if (defined('STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT')) {
+            $defaults['ssl']['crypto_method'] = STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT;
+        }
 
         if (isset($options['ssl'])) {
             $defaults['ssl'] = array_replace_recursive($defaults['ssl'], $options['ssl']);
